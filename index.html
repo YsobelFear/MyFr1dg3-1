@@ -122,7 +122,7 @@
     <button type="button" class="action-button" id="importButton">Import backup</button>
     <input type="file" id="importFile" accept="application/json,.json" class="hidden">
   </div>
-  <p class="hint">Use Customise to add, rename, reorder or remove shelves and drawers so it matches your real kitchen. Items in each compartment are sorted by expiry date, soonest first. Everything is saved in this browser only, so use Export backup to keep a copy or move it to another device. Preset calories are approximate and depend on food type and portion size; check food packaging for accuracy.</p>
+  <p class="hint">Use Customise to add, rename, reorder or remove shelves and drawers so it matches your real kitchen. Items in each compartment are sorted by expiry date, soonest first. Everything is saved in this browser only, so use Export backup to keep a copy (including your own recipes) or move it to another device. Preset calories are approximate and depend on food type and portion size; check food packaging for accuracy.</p>
 
   <dialog id="foodFormDialog">
     <h2 id="formTitle">Add ingredient</h2>
@@ -254,6 +254,7 @@
     // Keep the same key as the previous version, so existing saved ingredients remain.
     const STORAGE_KEY = 'myKitchenIngredientsV1';
     const LAYOUT_KEY = 'myKitchenLayoutV1';
+    const RECIPES_KEY = 'myKitchenRecipesV1'; // own recipes, managed on recipes.html
     const MAX_COMPARTMENTS = 8;
 
     // Default compartments, top to bottom. Ids '1'–'4' match the old fixed shelves,
@@ -755,7 +756,9 @@
 
     // Backup: download everything as a JSON file, or load one back in.
     el('exportButton').addEventListener('click', () => {
-      const backup = { app: 'my-kitchen', version: 2, layout, ingredients };
+      let recipes = [];
+      try { recipes = JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]'); } catch (error) { /* none */ }
+      const backup = { app: 'my-kitchen', version: 3, layout, ingredients, recipes: Array.isArray(recipes) ? recipes : [] };
       const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
       const link = document.createElement('a');
       link.href = URL.createObjectURL(blob);
@@ -777,6 +780,11 @@
         const items = rawItems.map(item => sanitizeItem(item, nextLayout)).filter(Boolean);
         if (!confirm(`Replace your current kitchen with ${items.length} item(s) from this backup?`)) return;
         if (!saveLayoutAndIngredients(nextLayout, items)) return;
+        // Your own recipes (backups from version 3). The recipes page checks each one when it loads.
+        if (!Array.isArray(data) && Array.isArray(data.recipes)) {
+          try { localStorage.setItem(RECIPES_KEY, JSON.stringify(data.recipes)); }
+          catch (error) { alert('Food was restored, but your recipes could not be saved (storage full).'); }
+        }
         layout = nextLayout;
         ingredients = items;
         renderAllLayouts();

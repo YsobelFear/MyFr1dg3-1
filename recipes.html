@@ -57,6 +57,24 @@
     .basic { color: #66746a; }
     .steps li { margin: 8px 0; line-height: 1.45; }
     .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+    .danger { color: #a32e2e; }
+    .section-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .section-head h2 { margin-bottom: 0; }
+    .own-badge { align-self: flex-start; font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; background: #e6eefb; color: #2d4f86; }
+
+    /* Add/edit recipe form */
+    .form-body { padding: 22px; }
+    .form-body h2 { margin-top: 0; }
+    .form-body label, .form-body .label { display: block; font-size: 14px; font-weight: bold; margin-top: 14px; }
+    .form-body input, .form-body textarea { display: block; width: 100%; margin-top: 5px; padding: 10px; border: 1px solid #aab4ac; border-radius: 7px; font: inherit; }
+    .form-body textarea { min-height: 220px; resize: vertical; line-height: 1.45; }
+    .ing-rows { margin-top: 5px; }
+    .ing-row { display: grid; grid-template-columns: 1fr 120px auto; gap: 6px; margin-bottom: 6px; }
+    .ing-row input { margin-top: 0; }
+    .ing-row button, .small-button { padding: 7px 10px; border: 1px solid #9caf9e; border-radius: 6px; background: #fff; cursor: pointer; }
+    .time-row { display: flex; align-items: center; gap: 8px; }
+    .time-row input { width: 120px; }
+    .hint-text { font-size: 12px; color: #66746a; margin: 5px 0 0; }
   </style>
 </head>
 <body>
@@ -74,6 +92,16 @@
         <button type="button" class="action-button primary" id="findButton">Find recipes</button>
       </div>
       <div class="chips" id="chips"></div>
+    </section>
+
+    <section id="myRecipesSection">
+      <div class="section-head">
+        <h2>My recipes</h2>
+        <button type="button" class="action-button primary" id="addRecipeButton">+ Add my own recipe</button>
+      </div>
+      <p class="muted small">Recipes you've added yourself, saved in this browser.</p>
+      <div class="grid" id="myGrid"></div>
+      <p class="status muted" id="myStatus"></p>
     </section>
 
     <section id="emptySection" class="empty" hidden>
@@ -107,9 +135,41 @@
       <ol class="steps" id="recipeSteps"></ol>
       <p id="recipeLinks"></p>
       <div class="modal-actions">
+        <button type="button" class="action-button danger" id="deleteRecipeButton" hidden>Delete</button>
+        <button type="button" class="action-button" id="editRecipeButton" hidden>Edit</button>
         <button type="button" class="action-button" onclick="document.getElementById('recipeDialog').close()">Close</button>
       </div>
     </div>
+  </dialog>
+
+  <dialog id="recipeFormDialog" aria-labelledby="recipeFormTitle">
+    <form class="form-body" id="recipeForm" novalidate>
+      <h2 id="recipeFormTitle">Add my own recipe</h2>
+      <input type="hidden" id="recipeId">
+
+      <label for="recipeName">Recipe name</label>
+      <input id="recipeName" maxlength="80" placeholder="e.g. Nan's shepherd's pie">
+
+      <span class="label" id="ingredientsLabel">Ingredients</span>
+      <p class="hint-text">One ingredient per row. Start typing to pick from your kitchen, so it's matched to the food you have.</p>
+      <div class="ing-rows" id="ingredientRows" role="group" aria-labelledby="ingredientsLabel"></div>
+      <button type="button" class="small-button" id="addIngredientRowButton">+ Add ingredient</button>
+      <datalist id="foodSuggestions"></datalist>
+
+      <label for="recipeMinutes">Time to cook</label>
+      <div class="time-row">
+        <input id="recipeMinutes" type="number" min="0" max="2880" step="1" placeholder="30"> <span>minutes</span>
+      </div>
+
+      <label for="recipeMethod">Method</label>
+      <p class="hint-text">Put each step on its own line and they'll be numbered for you.</p>
+      <textarea id="recipeMethod" maxlength="5000" placeholder="Boil the potatoes for 20 minutes.&#10;Brown the mince with the onion.&#10;..."></textarea>
+
+      <div class="modal-actions">
+        <button type="button" class="action-button" onclick="document.getElementById('recipeFormDialog').close()">Cancel</button>
+        <button type="submit" class="action-button primary">Save recipe</button>
+      </div>
+    </form>
   </dialog>
 
   <script>
@@ -120,6 +180,7 @@
     const MAX_SEARCHED = 12;      // limit how many foods we search online at once
     const MAX_ONLINE_RESULTS = 12;
     const API = 'https://www.themealdb.com/api/json/v1/1';
+    const RECIPES_KEY = 'myKitchenRecipesV1'; // your own recipes
 
     const el = id => document.getElementById(id);
 
@@ -355,6 +416,12 @@
       summary.className = 'small muted';
       summary.textContent = `You have ${analysis.haveCount} of ${analysis.neededCount} ingredients`
         + (recipe.time ? ` · ${recipe.time}` : '');
+      if (recipe.own) {
+        const badge = document.createElement('span');
+        badge.className = 'own-badge';
+        badge.textContent = 'My recipe';
+        body.appendChild(badge);
+      }
       body.append(title, meter, summary);
       if (analysis.soonUsed.length) {
         const soon = document.createElement('div');
@@ -410,6 +477,10 @@
         a.textContent = label;
         links.append(a, '  ');
       }
+      el('editRecipeButton').hidden = !recipe.own;
+      el('deleteRecipeButton').hidden = !recipe.own;
+      el('editRecipeButton').onclick = () => { el('recipeDialog').close(); openRecipeForm(recipe.id); };
+      el('deleteRecipeButton').onclick = () => deleteMyRecipe(recipe.id);
       el('recipeDialog').showModal();
     }
 
@@ -445,16 +516,21 @@
       return data;
     }
 
+    // Turns a block of method text into steps: one per line, without "1." / "Step 2:" prefixes.
+    function splitSteps(text) {
+      return String(text || '')
+        .split(/\r?\n+/)
+        .map(line => line.replace(/^\s*(step\s*)?\d+[.):]?\s*/i, '').trim())
+        .filter(line => line.length > 2);
+    }
+
     function mealToRecipe(meal) {
       const ingredients = [];
       for (let i = 1; i <= 20; i++) {
         const name = (meal[`strIngredient${i}`] || '').trim();
         if (name) ingredients.push([name, (meal[`strMeasure${i}`] || '').trim()]);
       }
-      const steps = (meal.strInstructions || '')
-        .split(/\r?\n+/)
-        .map(line => line.replace(/^\s*(step\s*)?\d+[.):]?\s*/i, '').trim())
-        .filter(line => line.length > 2);
+      const steps = splitSteps(meal.strInstructions);
       return {
         name: meal.strMeal, image: meal.strMealThumb || null, emoji: '🍽️',
         category: meal.strCategory, area: meal.strArea,
@@ -533,6 +609,7 @@
 
     async function findRecipes() {
       el('resultsSection').hidden = false;
+      showMyRecipes();
       showQuickIdeas();
       const button = el('findButton');
       button.disabled = true;
@@ -542,6 +619,176 @@
         button.disabled = false;
       }
     }
+
+
+    // ---------- Your own recipes ----------
+    function makeId() {
+      return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    }
+
+    // Checks one saved recipe and returns a clean copy, or null if it is unusable.
+    function sanitizeRecipe(raw) {
+      if (!raw || typeof raw !== 'object') return null;
+      const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 80) : '';
+      const ingredients = (Array.isArray(raw.ingredients) ? raw.ingredients : [])
+        .filter(Array.isArray)
+        .map(([ing, amount]) => [String(ing || '').trim().slice(0, 60), String(amount || '').trim().slice(0, 30)])
+        .filter(([ing]) => ing)
+        .slice(0, 40);
+      if (!name || !ingredients.length) return null;
+      const minutes = Number(raw.minutes);
+      return {
+        id: typeof raw.id === 'string' && raw.id ? raw.id : makeId(),
+        name,
+        ingredients,
+        minutes: raw.minutes !== null && raw.minutes !== '' && Number.isFinite(minutes) && minutes >= 0 ? Math.round(minutes) : null,
+        method: typeof raw.method === 'string' ? raw.method.slice(0, 5000) : ''
+      };
+    }
+
+    function loadMyRecipes() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(RECIPES_KEY) || '[]');
+        return Array.isArray(saved) ? saved.map(sanitizeRecipe).filter(Boolean) : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    function saveMyRecipes(next) {
+      try {
+        localStorage.setItem(RECIPES_KEY, JSON.stringify(next));
+        return true;
+      } catch (error) {
+        alert('Could not save. Browser storage might be full.');
+        return false;
+      }
+    }
+
+    let myRecipes = loadMyRecipes();
+
+    function formatMinutes(minutes) {
+      if (minutes == null) return '';
+      if (minutes < 60) return `${minutes} min`;
+      const h = Math.floor(minutes / 60), m = minutes % 60;
+      return m ? `${h} hr ${m} min` : `${h} hr`;
+    }
+
+    // Shapes a saved recipe the same way as built-in and online ones, for cards and details.
+    function toDisplayRecipe(saved) {
+      return {
+        id: saved.id, own: true, name: saved.name, emoji: '📝',
+        time: formatMinutes(saved.minutes),
+        ingredients: saved.ingredients,
+        steps: splitSteps(saved.method).length ? splitSteps(saved.method) : ['No method written yet.']
+      };
+    }
+
+    // Shows all your recipes (none are hidden), best match for your kitchen first.
+    function showMyRecipes() {
+      const grid = el('myGrid');
+      grid.replaceChildren();
+      const ranked = myRecipes
+        .map(saved => {
+          const recipe = toDisplayRecipe(saved);
+          return { recipe, analysis: analyse(recipe.ingredients) };
+        })
+        .sort((a, b) => b.analysis.score - a.analysis.score || a.recipe.name.localeCompare(b.recipe.name));
+      for (const { recipe, analysis } of ranked) {
+        grid.appendChild(makeCard(recipe, analysis, () => openRecipe(recipe, analysis)));
+      }
+      el('myStatus').textContent = ranked.length ? '' : "You haven't added any recipes yet.";
+    }
+
+    function addIngredientRow(name = '', amount = '') {
+      const rows = el('ingredientRows');
+      const row = document.createElement('div');
+      row.className = 'ing-row';
+      const nameInput = document.createElement('input');
+      nameInput.className = 'ing-name';
+      nameInput.maxLength = 60;
+      nameInput.placeholder = 'Ingredient, e.g. Potatoes';
+      nameInput.setAttribute('list', 'foodSuggestions');
+      nameInput.setAttribute('aria-label', 'Ingredient');
+      nameInput.value = name;
+      const amountInput = document.createElement('input');
+      amountInput.className = 'ing-amount';
+      amountInput.maxLength = 30;
+      amountInput.placeholder = 'Amount';
+      amountInput.setAttribute('aria-label', 'Amount');
+      amountInput.value = amount;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.textContent = '✕';
+      remove.title = 'Remove ingredient';
+      remove.setAttribute('aria-label', 'Remove ingredient');
+      remove.addEventListener('click', () => {
+        row.remove();
+        if (!rows.children.length) addIngredientRow();
+      });
+      row.append(nameInput, amountInput, remove);
+      rows.appendChild(row);
+      return nameInput;
+    }
+
+    // Suggestions: the food in your kitchen first, then the app's preset foods.
+    function fillSuggestions() {
+      const names = [...new Set([...foods.map(f => f.name), ...Object.keys(MEALDB_NAMES)])];
+      el('foodSuggestions').replaceChildren(...names.map(name => new Option(name)));
+    }
+
+    function openRecipeForm(id = '') {
+      const saved = myRecipes.find(r => r.id === id);
+      el('recipeForm').reset();
+      el('recipeId').value = saved ? saved.id : '';
+      el('recipeFormTitle').textContent = saved ? 'Edit recipe' : 'Add my own recipe';
+      el('recipeName').value = saved ? saved.name : '';
+      el('recipeMinutes').value = saved && saved.minutes != null ? saved.minutes : '';
+      el('recipeMethod').value = saved ? saved.method : '';
+      el('ingredientRows').replaceChildren();
+      if (saved) saved.ingredients.forEach(([name, amount]) => addIngredientRow(name, amount));
+      else { addIngredientRow(); addIngredientRow(); addIngredientRow(); }
+      fillSuggestions();
+      el('recipeFormDialog').showModal();
+      el('recipeName').focus();
+    }
+
+    function deleteMyRecipe(id) {
+      const saved = myRecipes.find(r => r.id === id);
+      if (!saved || !confirm(`Delete "${saved.name}"?`)) return;
+      const next = myRecipes.filter(r => r.id !== id);
+      if (!saveMyRecipes(next)) return;
+      myRecipes = next;
+      el('recipeDialog').close();
+      showMyRecipes();
+    }
+
+    el('recipeForm').addEventListener('submit', event => {
+      event.preventDefault();
+      const ingredients = [...el('ingredientRows').querySelectorAll('.ing-row')]
+        .map(row => [row.querySelector('.ing-name').value.trim(), row.querySelector('.ing-amount').value.trim()])
+        .filter(([name]) => name);
+      const draft = {
+        id: el('recipeId').value || makeId(),
+        name: el('recipeName').value,
+        ingredients,
+        minutes: el('recipeMinutes').value,
+        method: el('recipeMethod').value.trim()
+      };
+      if (!draft.name.trim()) { alert('Give your recipe a name.'); el('recipeName').focus(); return; }
+      if (!ingredients.length) { alert('Add at least one ingredient.'); el('ingredientRows').querySelector('.ing-name').focus(); return; }
+      if (!draft.method) { alert('Write the method so you know how to make it.'); el('recipeMethod').focus(); return; }
+      const recipe = sanitizeRecipe(draft);
+      const exists = myRecipes.some(r => r.id === recipe.id);
+      const next = exists ? myRecipes.map(r => r.id === recipe.id ? recipe : r) : [...myRecipes, recipe];
+      if (!saveMyRecipes(next)) return;
+      myRecipes = next;
+      el('recipeFormDialog').close();
+      showMyRecipes();
+    });
+
+    el('addRecipeButton').addEventListener('click', () => openRecipeForm());
+    el('addIngredientRowButton').addEventListener('click', () => addIngredientRow().focus());
 
     // ---------- Start ----------
     el('selectAllButton').addEventListener('click', () => {
@@ -556,6 +803,7 @@
     });
     el('findButton').addEventListener('click', findRecipes);
 
+    showMyRecipes(); // your recipes show even when the kitchen is empty
     if (!foods.length) {
       el('kitchenSection').hidden = true;
       el('emptySection').hidden = false;
