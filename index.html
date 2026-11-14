@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Kitchen</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 30px 16px; background: #f7f7f2; color: #29352e; font-family: Arial, sans-serif; text-align: center; }
+    h1 { margin-bottom: 6px; }
+    .intro, .hint { color: #66746a; }
+    /* Wide column gap so an open door doesn't swing over the unit beside it. */
+    .kitchen { display: flex; justify-content: center; align-items: flex-start; gap: 35px 125px; flex-wrap: wrap; margin: 28px auto; }
+    .unit { display: flex; flex-direction: column; align-items: center; }
+    .unit h2 { margin-bottom: 15px; }
+    /* The unit grows taller when more compartments are added, so they never get too cramped. */
+    .storage { width: 250px; min-height: 400px; display: flex; flex-direction: column; position: relative; border: 8px solid; border-radius: 18px; background: #e8f0e9; }
+    .fridge { border-color: #9caf9e; }
+    .cupboard { background: #f4e6ce; border-color: #b88c64; border-radius: 8px; }
+    .freezer { background: #edf7fa; border-color: #a1c6d5; }
+    /* "safe flex-end" keeps items on the bottom of the shelf, but if a shelf overflows
+       the extra rows can still be scrolled to (plain flex-end pushed them out of reach). */
+    .shelf { flex: 1 1 0; min-height: 72px; position: relative; border-bottom: 5px solid #9caf9e; display: flex; justify-content: center; align-items: flex-end; flex-wrap: wrap; align-content: safe flex-end; gap: 4px; padding: 16px 4px 4px; overflow-y: auto; }
+    .cupboard .shelf { border-bottom-color: #c7a27d; }
+    .freezer .shelf { border-bottom-color: #b4dbe7; }
+    /* Drawers: an inset box with a handle, and a little taller than shelves. */
+    .shelf.drawer { flex-grow: 1.3; margin: 5px 6px; border: 3px solid #9caf9e; border-radius: 8px; background: #ffffff70; padding-bottom: 16px; }
+    .cupboard .shelf.drawer { border-color: #c7a27d; }
+    .freezer .shelf.drawer { border-color: #b4dbe7; }
+    .shelf.drawer::after { content: ""; position: absolute; left: 50%; bottom: 4px; transform: translateX(-50%); width: 46px; height: 6px; border-radius: 4px; background: #00000030; }
+    .compartment-label { position: absolute; top: 2px; right: 6px; font-size: 10px; color: #29352e99; pointer-events: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 12px); text-align: right; }
+    .layout-list { list-style: none; padding: 0; margin: 12px 0 0; }
+    .layout-row { display: grid; grid-template-columns: 1fr 92px auto; gap: 6px; align-items: center; padding: 8px 0; border-bottom: 1px solid #e3e7e3; }
+    .layout-row input, .layout-row select { margin-top: 0; padding: 8px; }
+    .layout-row-buttons { display: flex; gap: 4px; }
+    .layout-row-buttons button, .layout-add button { padding: 7px 10px; border: 1px solid #9caf9e; border-radius: 6px; background: #fff; cursor: pointer; }
+    .layout-row-buttons button:disabled, .layout-add button:disabled { opacity: .4; cursor: not-allowed; }
+    .layout-count { grid-column: 1 / -1; font-size: 12px; color: #66746a; }
+    .layout-add { display: flex; gap: 8px; margin-top: 12px; }
+    .food { border: 0; background: transparent; font-size: 29px; padding: 2px; cursor: pointer; border-radius: 6px; width: 51px; height: 51px; display: inline-flex; align-items: center; justify-content: center; }
+    .food img { width: 45px; height: 45px; object-fit: contain; border-radius: 5px; }
+    .food:hover, .food:focus-visible { background: #ffffffa8; outline: 2px solid #5c7863; }
+    .door { position: absolute; inset: 0; width: 100%; border: 0; padding: 0; background: #b8cdbb; border-radius: 10px; cursor: pointer; transform-origin: left center; transition: transform .6s ease; z-index: 2; }
+    .door:focus-visible { outline: 3px solid #29352e; outline-offset: 3px; }
+    .cupboard .door { background: #d5b18a; border-radius: 3px; }
+    .freezer .door { background: #c5e4ec; }
+    .door::after { content: ""; position: absolute; right: 15px; top: 43%; width: 10px; height: 65px; border-radius: 8px; background: #fff; }
+    .storage.open .door { transform: perspective(700px) rotateY(-110deg); pointer-events: none; }
+    @media (prefers-reduced-motion: reduce) { .door { transition: none; } }
+    /* Sits above a neighbouring unit's open door so buttons stay visible. */
+    .actions { position: relative; z-index: 3; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 20px; max-width: 280px; }
+    button { font: inherit; }
+    .action-button, .modal-actions button { padding: 10px 14px; border: 1px solid #9caf9e; border-radius: 8px; background: white; cursor: pointer; }
+    .recipe-link { display: inline-block; text-decoration: none; }
+    .primary { background: #56745d !important; color: white; border-color: #56745d !important; }
+    .danger { color: #a32e2e; }
+    dialog { border: 0; border-radius: 14px; padding: 24px; width: min(460px, calc(100vw - 28px)); text-align: left; box-shadow: 0 12px 55px #0003; max-height: 90vh; overflow-y: auto; }
+    dialog::backdrop { background: #1e2b2299; }
+    dialog h2 { margin-top: 0; }
+    label { display: block; font-size: 14px; font-weight: bold; margin-top: 13px; }
+    input, select { display: block; width: 100%; margin-top: 5px; padding: 10px; border: 1px solid #aab4ac; border-radius: 7px; font: inherit; }
+    .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 22px; }
+    .detail-image { width: 75px; height: 75px; object-fit: contain; border-radius: 8px; }
+    .detail-emoji { font-size: 52px; }
+    .details-line { margin: 9px 0; }
+    .hint { font-size: 13px; max-width: 740px; margin: 20px auto; }
+    .helper { font-size: 12px; line-height: 1.5; margin: 5px 0; color: #66746a; }
+    .hidden { display: none; }
+    .image-preview { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .image-preview img { max-width: 60px; max-height: 60px; object-fit: contain; }
+    .image-preview button { padding: 5px 9px; border-radius: 5px; border: 1px solid #aaa; background: #fff; cursor: pointer; }
+    .calorie-help { font-size: 12px; color: #56685a; margin-top: 5px; }
+    .backup { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+    @media (max-width: 540px) { body { padding: 18px 8px; } .kitchen { gap: 28px; } }
+  </style>
+</head>
+<body>
+  <h1>My Kitchen</h1>
+  <p class="intro">Open a door, add food to a shelf, and click an ingredient to see its details.</p>
+  <p><a class="action-button primary recipe-link" href="recipes.html">🍳 Recipe ideas from my kitchen</a></p>
+
+  <main class="kitchen">
+    <section class="unit">
+      <h2>Fridge</h2>
+      <div class="storage fridge" id="fridge">
+        <button type="button" class="door" onclick="toggleDoor('fridge')" aria-label="Open fridge" aria-expanded="false"></button>
+      </div>
+      <div class="actions">
+        <button class="action-button" onclick="toggleDoor('fridge')">Open / Close</button>
+        <button class="action-button" onclick="openLayout('fridge')">Customise</button>
+        <button class="action-button primary" onclick="openAdd('fridge')">+ Add food</button>
+      </div>
+    </section>
+
+    <section class="unit">
+      <h2>Cupboard</h2>
+      <div class="storage cupboard" id="cupboard">
+        <button type="button" class="door" onclick="toggleDoor('cupboard')" aria-label="Open cupboard" aria-expanded="false"></button>
+      </div>
+      <div class="actions">
+        <button class="action-button" onclick="toggleDoor('cupboard')">Open / Close</button>
+        <button class="action-button" onclick="openLayout('cupboard')">Customise</button>
+        <button class="action-button primary" onclick="openAdd('cupboard')">+ Add food</button>
+      </div>
+    </section>
+
+    <section class="unit">
+      <h2>Freezer</h2>
+      <div class="storage freezer" id="freezer">
+        <button type="button" class="door" onclick="toggleDoor('freezer')" aria-label="Open freezer" aria-expanded="false"></button>
+      </div>
+      <div class="actions">
+        <button class="action-button" onclick="toggleDoor('freezer')">Open / Close</button>
+        <button class="action-button" onclick="openLayout('freezer')">Customise</button>
+        <button class="action-button primary" onclick="openAdd('freezer')">+ Add food</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="backup">
+    <button type="button" class="action-button" id="exportButton">Export backup</button>
+    <button type="button" class="action-button" id="importButton">Import backup</button>
+    <input type="file" id="importFile" accept="application/json,.json" class="hidden">
+  </div>
+  <p class="hint">Use Customise to add, rename, reorder or remove shelves and drawers so it matches your real kitchen. Items in each compartment are sorted by expiry date, soonest first. Everything is saved in this browser only, so use Export backup to keep a copy or move it to another device. Preset calories are approximate and depend on food type and portion size; check food packaging for accuracy.</p>
+
+  <dialog id="foodFormDialog">
+    <h2 id="formTitle">Add ingredient</h2>
+    <form id="foodForm">
+      <input type="hidden" id="foodId">
+      <label for="foodPreset">Choose a food</label>
+      <select id="foodPreset"></select>
+
+      <div id="customNameGroup" class="hidden">
+        <label for="foodName">Custom food name</label>
+        <input id="foodName" maxlength="60" placeholder="e.g. Homemade curry">
+      </div>
+
+      <label for="foodEmoji">Emoji (used if no image is uploaded)</label>
+      <input id="foodEmoji" maxlength="12" placeholder="🍽️" value="🍽️">
+
+      <label for="foodImage">Your own picture (PNG or JPEG, optional)</label>
+      <input id="foodImage" type="file" accept="image/png,image/jpeg,.png,.jpg,.jpeg">
+      <p class="helper">You can upload your own drawing. Small images work best; uploads will be resized to save browser storage.</p>
+      <div class="image-preview hidden" id="imagePreviewRow">
+        <img id="imagePreview" alt="Selected food picture preview">
+        <button type="button" id="removeImageButton">Remove image</button>
+      </div>
+
+      <label for="foodQuantity">Quantity</label>
+      <input id="foodQuantity" maxlength="60" required placeholder="e.g. 200 g, 1.5 kg, 500 ml or 2 eggs">
+
+      <label for="foodExpiry">Expiry date (optional)</label>
+      <input id="foodExpiry" type="date" lang="en-GB">
+
+      <label for="foodCalories">Estimated total calories (kcal)</label>
+      <input id="foodCalories" type="number" min="0" step="any" placeholder="Enter calories">
+      <p class="calorie-help" id="calorieHelp">Choose a preset food to fill its estimated calories automatically.</p>
+
+      <label for="foodLocation">Storage location</label>
+      <select id="foodLocation">
+        <option value="fridge">Fridge</option>
+        <option value="cupboard">Cupboard</option>
+        <option value="freezer">Freezer</option>
+      </select>
+
+      <label for="foodShelf">Shelf or drawer</label>
+      <select id="foodShelf"></select>
+      <div class="modal-actions">
+        <button type="button" onclick="document.getElementById('foodFormDialog').close()">Cancel</button>
+        <button class="primary" type="submit">Save ingredient</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="detailsDialog">
+    <h2>Ingredient details</h2>
+    <div id="detailVisual"></div>
+    <p class="details-line"><strong>Name:</strong> <span id="detailName"></span></p>
+    <p class="details-line"><strong>Quantity:</strong> <span id="detailQuantity"></span></p>
+    <p class="details-line"><strong>Expiry:</strong> <span id="detailExpiry"></span></p>
+    <p class="details-line"><strong>Calories:</strong> <span id="detailCalories"></span></p>
+    <p class="details-line"><strong>Location:</strong> <span id="detailLocation"></span></p>
+    <div class="modal-actions">
+      <button type="button" onclick="document.getElementById('detailsDialog').close()">Close</button>
+      <button class="danger" id="deleteButton" type="button">Delete</button>
+      <button class="primary" id="editButton" type="button">Edit</button>
+    </div>
+  </dialog>
+
+  <dialog id="layoutDialog">
+    <h2 id="layoutTitle">Customise</h2>
+    <p class="helper">Listed from top to bottom. Rename, reorder, or remove compartments to match your real kitchen. Food in a removed compartment moves to the nearest one that's left.</p>
+    <ol class="layout-list" id="layoutList"></ol>
+    <div class="layout-add">
+      <button type="button" id="addShelfButton">+ Add shelf</button>
+      <button type="button" id="addDrawerButton">+ Add drawer</button>
+    </div>
+    <div class="modal-actions">
+      <button type="button" onclick="document.getElementById('layoutDialog').close()">Cancel</button>
+      <button class="primary" type="button" id="saveLayoutButton">Save layout</button>
+    </div>
+  </dialog>
+
+  <script>
+    // Each preset specifies a standard quantity and an approximate calorie value for it.
+    // Values are estimates, not a verified nutritional database.
+    const FOOD_CATALOG = {
+      fridge: [
+        { name:'Milk', emoji:'🥛', amount:100, unit:'ml', kcal:61 },
+        { name:'Eggs', emoji:'🥚', amount:1, unit:'egg', kcal:72 },
+        { name:'Cheddar cheese', emoji:'🧀', amount:100, unit:'g', kcal:403 },
+        { name:'Yoghurt', emoji:'🫙', amount:100, unit:'g', kcal:63 },
+        { name:'Butter', emoji:'🧈', amount:100, unit:'g', kcal:717 },
+        { name:'Chicken breast', emoji:'🍗', amount:100, unit:'g', kcal:120 },
+        { name:'Tomato', emoji:'🍅', amount:100, unit:'g', kcal:18 },
+        { name:'Carrot', emoji:'🥕', amount:100, unit:'g', kcal:41 },
+        { name:'Broccoli', emoji:'🥦', amount:100, unit:'g', kcal:34 },
+        { name:'Apple', emoji:'🍎', amount:1, unit:'apple', kcal:95 },
+        { name:'Spinach', emoji:'🥬', amount:100, unit:'g', kcal:23 },
+        { name:'Orange', emoji:'🍊', amount:1, unit:'orange', kcal:62 }
+      ],
+      cupboard: [
+        { name:'Pasta (dry)', emoji:'🍝', amount:100, unit:'g', kcal:371 },
+        { name:'Rice (dry)', emoji:'🍚', amount:100, unit:'g', kcal:365 },
+        { name:'Bread', emoji:'🍞', amount:1, unit:'slice', kcal:80 },
+        { name:'Oats (dry)', emoji:'🥣', amount:100, unit:'g', kcal:389 },
+        { name:'Flour', emoji:'🌾', amount:100, unit:'g', kcal:364 },
+        { name:'Sugar', emoji:'🍬', amount:100, unit:'g', kcal:387 },
+        { name:'Honey', emoji:'🍯', amount:100, unit:'g', kcal:304 },
+        { name:'Peanut butter', emoji:'🥜', amount:100, unit:'g', kcal:588 },
+        { name:'Tinned beans', emoji:'🥫', amount:100, unit:'g', kcal:94 },
+        { name:'Olive oil', emoji:'🫒', amount:100, unit:'ml', kcal:810 },
+        { name:'Nuts', emoji:'🌰', amount:100, unit:'g', kcal:600 },
+        { name:'Potatoes', emoji:'🥔', amount:100, unit:'g', kcal:77 }
+      ],
+      freezer: [
+        { name:'Frozen peas', emoji:'🟢', amount:100, unit:'g', kcal:81 },
+        { name:'Frozen mixed vegetables', emoji:'🥗', amount:100, unit:'g', kcal:65 },
+        { name:'Frozen berries', emoji:'🫐', amount:100, unit:'g', kcal:50 },
+        { name:'Ice cream', emoji:'🍨', amount:100, unit:'g', kcal:207 },
+        { name:'Frozen chips', emoji:'🍟', amount:100, unit:'g', kcal:160 },
+        { name:'Frozen pizza', emoji:'🍕', amount:100, unit:'g', kcal:250 },
+        { name:'Frozen fish', emoji:'🐟', amount:100, unit:'g', kcal:82 },
+        { name:'Frozen chicken breast', emoji:'🍗', amount:100, unit:'g', kcal:120 },
+        { name:'Frozen dumplings', emoji:'🥟', amount:100, unit:'g', kcal:220 },
+        { name:'Frozen bread', emoji:'🍞', amount:1, unit:'slice', kcal:80 }
+      ]
+    };
+
+    const LOCATION_NAMES = { fridge: 'Fridge', cupboard: 'Cupboard', freezer: 'Freezer' };
+    const DEFAULT_EMOJI = '🍽️';
+
+    // Keep the same key as the previous version, so existing saved ingredients remain.
+    const STORAGE_KEY = 'myKitchenIngredientsV1';
+    const LAYOUT_KEY = 'myKitchenLayoutV1';
+    const MAX_COMPARTMENTS = 8;
+
+    // Default compartments, top to bottom. Ids '1'–'4' match the old fixed shelves,
+    // so food saved before layouts existed stays where it was.
+    const DEFAULT_LAYOUT = {
+      fridge: [
+        { id: '1', name: 'Top shelf', type: 'shelf' },
+        { id: '2', name: 'Middle shelf', type: 'shelf' },
+        { id: '3', name: 'Bottom shelf', type: 'shelf' },
+        { id: '4', name: 'Salad drawer', type: 'drawer' }
+      ],
+      cupboard: [
+        { id: '1', name: 'Shelf 1', type: 'shelf' },
+        { id: '2', name: 'Shelf 2', type: 'shelf' },
+        { id: '3', name: 'Shelf 3', type: 'shelf' },
+        { id: '4', name: 'Shelf 4', type: 'shelf' }
+      ],
+      freezer: [
+        { id: '1', name: 'Drawer 1', type: 'drawer' },
+        { id: '2', name: 'Drawer 2', type: 'drawer' },
+        { id: '3', name: 'Drawer 3', type: 'drawer' },
+        { id: '4', name: 'Drawer 4', type: 'drawer' }
+      ]
+    };
+
+    let layout = loadLayout();
+    let ingredients = loadIngredients();
+    let currentImage = null;
+    // True once the user types their own calorie value, so we stop overwriting it.
+    let caloriesTouched = false;
+
+    const el = id => document.getElementById(id);
+
+    // Dates are stored as YYYY-MM-DD (sorts correctly, works with <input type="date">)
+    // and only converted to DD/MM/YYYY for display. Splitting the string avoids
+    // new Date("YYYY-MM-DD"), which is read as UTC and can show the wrong day.
+    function formatDate(dateString) {
+      if (!dateString) return 'Not entered';
+      const [year, month, day] = dateString.split('-');
+      return `${day}/${month}/${year}`;
+    }
+
+    function makeId() {
+      return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+    }
+
+    // Checks a saved/imported layout. Any unit whose list is broken falls back to the default.
+    function sanitizeLayout(raw) {
+      const clean = {};
+      for (const location of Object.keys(DEFAULT_LAYOUT)) {
+        const list = raw && Array.isArray(raw[location]) ? raw[location] : null;
+        const seen = new Set();
+        const compartments = (list || []).map(c => ({
+          id: c && typeof c.id === 'string' ? c.id : '',
+          name: c && typeof c.name === 'string' ? c.name.trim().slice(0, 30) : '',
+          type: c && c.type === 'drawer' ? 'drawer' : 'shelf'
+        })).filter(c => c.id && !seen.has(c.id) && seen.add(c.id))
+          .map((c, i) => ({ ...c, name: c.name || `${c.type === 'drawer' ? 'Drawer' : 'Shelf'} ${i + 1}` }))
+          .slice(0, MAX_COMPARTMENTS);
+        clean[location] = compartments.length
+          ? compartments
+          : DEFAULT_LAYOUT[location].map(c => ({ ...c }));
+      }
+      return clean;
+    }
+
+    function loadLayout() {
+      try {
+        return sanitizeLayout(JSON.parse(localStorage.getItem(LAYOUT_KEY) || 'null'));
+      } catch (error) {
+        console.warn('Could not load saved layout:', error);
+        return sanitizeLayout(null);
+      }
+    }
+
+    function getCompartment(location, id) {
+      return layout[location].find(c => c.id === id);
+    }
+
+    // Checks one saved/imported item and returns a clean copy, or null if it is unusable.
+    // Food in a compartment that no longer exists goes to the unit's top compartment.
+    function sanitizeItem(raw, currentLayout = layout) {
+      if (!raw || typeof raw !== 'object') return null;
+      const location = String(raw.location);
+      const name = typeof raw.name === 'string' ? raw.name.trim().slice(0, 60) : '';
+      if (!FOOD_CATALOG[location] || !name) return null;
+      const compartments = currentLayout[location];
+      const shelf = compartments.some(c => c.id === String(raw.shelf)) ? String(raw.shelf) : compartments[0].id;
+      const calories = raw.calories === null || raw.calories === '' || raw.calories === undefined
+        ? null : Number(raw.calories);
+      return {
+        id: typeof raw.id === 'string' && raw.id ? raw.id : makeId(),
+        name,
+        emoji: typeof raw.emoji === 'string' ? raw.emoji.slice(0, 12) : DEFAULT_EMOJI,
+        quantity: typeof raw.quantity === 'string' ? raw.quantity.slice(0, 60) : '',
+        expiry: typeof raw.expiry === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(raw.expiry) ? raw.expiry : '',
+        calories: Number.isFinite(calories) && calories >= 0 ? calories : null,
+        location,
+        shelf,
+        image: typeof raw.image === 'string' && raw.image.startsWith('data:image/') ? raw.image : null
+      };
+    }
+
+    function loadIngredients() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        return Array.isArray(saved) ? saved.map(item => sanitizeItem(item)).filter(Boolean) : [];
+      } catch (error) {
+        console.warn('Could not load saved ingredients:', error);
+        return [];
+      }
+    }
+
+    function saveIngredients(nextIngredients) {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(nextIngredients));
+        return true;
+      } catch (error) {
+        alert('Could not save. Browser storage might be full; try using smaller images.');
+        return false;
+      }
+    }
+
+    // Saves a layout and the (possibly moved) food together. If the food can't be
+    // saved, the old layout is put back so the two never get out of step.
+    function saveLayoutAndIngredients(nextLayout, nextIngredients) {
+      const previousLayout = localStorage.getItem(LAYOUT_KEY);
+      try {
+        localStorage.setItem(LAYOUT_KEY, JSON.stringify(nextLayout));
+      } catch (error) {
+        alert('Could not save the layout. Browser storage might be full.');
+        return false;
+      }
+      if (saveIngredients(nextIngredients)) return true;
+      try {
+        if (previousLayout === null) localStorage.removeItem(LAYOUT_KEY);
+        else localStorage.setItem(LAYOUT_KEY, previousLayout);
+      } catch (error) { /* nothing more we can do */ }
+      return false;
+    }
+
+    // Builds the shelf/drawer elements for one unit from the layout, top to bottom.
+    function renderLayout(location) {
+      const storage = el(location);
+      const isOpen = storage.classList.contains('open');
+      storage.querySelectorAll('.shelf').forEach(shelf => shelf.remove());
+      const door = storage.querySelector('.door');
+      for (const compartment of layout[location]) {
+        const div = document.createElement('div');
+        div.className = compartment.type === 'drawer' ? 'shelf drawer' : 'shelf';
+        div.dataset.location = location;
+        div.dataset.shelf = compartment.id;
+        div.setAttribute('role', 'group');
+        div.setAttribute('aria-label', compartment.name);
+        div.inert = !isOpen;
+        const label = document.createElement('span');
+        label.className = 'compartment-label';
+        label.textContent = compartment.name;
+        label.setAttribute('aria-hidden', 'true');
+        div.appendChild(label);
+        storage.insertBefore(div, door);
+      }
+    }
+
+    function renderAllLayouts() {
+      Object.keys(layout).forEach(renderLayout);
+    }
+
+    // Fills the "Shelf or drawer" dropdown in the food form for the chosen unit.
+    function populateShelves(location, selectedId = '') {
+      const select = el('foodShelf');
+      select.replaceChildren();
+      for (const compartment of layout[location]) {
+        select.add(new Option(compartment.name, compartment.id));
+      }
+      select.value = getCompartment(location, selectedId) ? selectedId : layout[location][0].id;
+    }
+
+    // Opens or closes a door, keeping screen readers and keyboard focus in sync:
+    // shelves behind a closed door are "inert", so Tab can't reach hidden food.
+    function setDoor(id, open) {
+      const storage = el(id);
+      storage.classList.toggle('open', open);
+      storage.querySelectorAll('.shelf').forEach(shelf => { shelf.inert = !open; });
+      const door = storage.querySelector('.door');
+      door.setAttribute('aria-expanded', String(open));
+      door.setAttribute('aria-label', `${open ? 'Close' : 'Open'} ${id}`);
+    }
+
+    function toggleDoor(id) { setDoor(id, !el(id).classList.contains('open')); }
+
+    // Soonest expiry first; items with no expiry date go last; ties sorted by name.
+    function byExpiry(a, b) {
+      if (a.expiry !== b.expiry) {
+        if (!a.expiry) return 1;
+        if (!b.expiry) return -1;
+        return a.expiry < b.expiry ? -1 : 1;
+      }
+      return a.name.localeCompare(b.name);
+    }
+
+    function renderIngredients() {
+      // Remove only the food buttons; the compartment name labels stay.
+      document.querySelectorAll('.shelf .food').forEach(food => food.remove());
+      [...ingredients].sort(byExpiry).forEach(item => {
+        const shelf = document.querySelector(
+          `.shelf[data-location="${item.location}"][data-shelf="${item.shelf}"]`
+        );
+        if (!shelf) return;
+        const button = document.createElement('button');
+        button.className = 'food';
+        button.type = 'button';
+        button.title = item.name;
+        button.setAttribute('aria-label', `View ${item.name}`);
+        if (item.image) {
+          const img = document.createElement('img');
+          img.src = item.image;
+          img.alt = '';
+          button.appendChild(img);
+        } else {
+          button.textContent = item.emoji || DEFAULT_EMOJI;
+        }
+        button.addEventListener('click', () => showDetails(item.id));
+        shelf.appendChild(button);
+      });
+    }
+
+    function populatePresets(location, selectedName = '') {
+      const select = el('foodPreset');
+      select.replaceChildren();
+      const prompt = new Option('— Select a food —', '');
+      select.add(prompt);
+      for (const food of FOOD_CATALOG[location]) {
+        select.add(new Option(`${food.emoji} ${food.name}`, food.name));
+      }
+      select.add(new Option('✏️ Other — write my own', '__custom__'));
+      select.value = selectedName || '';
+      el('customNameGroup').classList.toggle('hidden', select.value !== '__custom__');
+    }
+
+    function getPreset() {
+      return FOOD_CATALOG[el('foodLocation').value].find(x => x.name === el('foodPreset').value);
+    }
+
+    // Units we understand, mapped to the base unit used in FOOD_CATALOG and a multiplier.
+    const UNIT_ALIASES = {
+      g: ['g', 1], gram: ['g', 1], grams: ['g', 1], gr: ['g', 1],
+      kg: ['g', 1000], kilo: ['g', 1000], kilos: ['g', 1000], kilogram: ['g', 1000], kilograms: ['g', 1000],
+      ml: ['ml', 1], millilitre: ['ml', 1], millilitres: ['ml', 1], milliliter: ['ml', 1], milliliters: ['ml', 1],
+      cl: ['ml', 10],
+      l: ['ml', 1000], litre: ['ml', 1000], litres: ['ml', 1000], liter: ['ml', 1000], liters: ['ml', 1000],
+      egg: ['egg', 1], eggs: ['egg', 1],
+      apple: ['apple', 1], apples: ['apple', 1],
+      orange: ['orange', 1], oranges: ['orange', 1],
+      slice: ['slice', 1], slices: ['slice', 1]
+    };
+
+    // Turns text like '200 g', '1.5kg', '2 large eggs' or '3 slices of bread'
+    // into { amount, unit } in the catalog's base unit, for calorie scaling.
+    function parseQuantity(text) {
+      const match = text.trim().toLowerCase().replace(',', '.').match(/^(\d+(?:\.\d+)?)\s*(.*)$/);
+      if (!match) return null;
+      const words = match[2].split(/[^a-z]+/).filter(Boolean);
+      const known = words.find(word => UNIT_ALIASES[word]);
+      if (!known) return { amount: Number(match[1]), unit: words[0] || '' };
+      const [unit, factor] = UNIT_ALIASES[known];
+      return { amount: Number(match[1]) * factor, unit };
+    }
+
+    // Returns the estimated calories for a preset + quantity text, or null if units don't match.
+    function estimateCalories(preset, quantityText) {
+      const parsed = parseQuantity(quantityText);
+      if (!preset || !parsed || parsed.unit !== preset.unit) return null;
+      return Math.round((parsed.amount / preset.amount) * preset.kcal * 10) / 10;
+    }
+
+    function updateCalories() {
+      const preset = getPreset();
+      if (!preset) {
+        el('calorieHelp').textContent = 'For a custom food, enter calories manually.';
+        return;
+      }
+      const estimated = estimateCalories(preset, el('foodQuantity').value);
+      const rate = `${preset.kcal} kcal per ${preset.amount} ${preset.unit}`;
+      if (caloriesTouched) {
+        el('calorieHelp').textContent = estimated === null
+          ? `Using your own value. (Estimate is ${rate}.)`
+          : `Using your own value. Clear the box to use the estimate (${estimated} kcal).`;
+      } else if (estimated !== null) {
+        el('foodCalories').value = estimated;
+        el('calorieHelp').textContent = `Estimate: ${rate}. You can override this value.`;
+      } else {
+        el('foodCalories').value = '';
+        el('calorieHelp').textContent = `Enter a quantity like "${preset.amount} ${preset.unit}" to calculate automatically, or enter calories yourself.`;
+      }
+    }
+
+    function onPresetChange() {
+      const preset = getPreset();
+      const custom = el('foodPreset').value === '__custom__';
+      el('customNameGroup').classList.toggle('hidden', !custom);
+      caloriesTouched = false;
+      if (preset) {
+        el('foodEmoji').value = preset.emoji;
+        // Keep a quantity the user already typed if it works for this food;
+        // otherwise suggest the preset's standard amount.
+        if (estimateCalories(preset, el('foodQuantity').value) === null) {
+          el('foodQuantity').value = `${preset.amount} ${preset.unit}`;
+        }
+      } else {
+        el('foodCalories').value = '';
+        if (custom) el('foodEmoji').value = DEFAULT_EMOJI;
+      }
+      updateCalories();
+    }
+
+    function previewImage() {
+      const row = el('imagePreviewRow');
+      row.classList.toggle('hidden', !currentImage);
+      el('imagePreview').src = currentImage || '';
+    }
+
+    // Resize the uploaded PNG/JPEG into a small image before storing it locally.
+    // Saved as WebP (or JPEG if WebP isn't supported) on a white background,
+    // which is much smaller than PNG and stretches browser storage further.
+    function resizeImage(file) {
+      return new Promise((resolve, reject) => {
+        if (!['image/png', 'image/jpeg'].includes(file.type)) {
+          reject(new Error('Please choose a PNG or JPEG file.'));
+          return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+          reject(new Error('Choose an image smaller than 5 MB.'));
+          return;
+        }
+        const reader = new FileReader();
+        reader.onerror = () => reject(new Error('Could not read the image.'));
+        reader.onload = () => {
+          const image = new Image();
+          image.onerror = () => reject(new Error('Could not open the image.'));
+          image.onload = () => {
+            const scale = Math.min(1, 180 / Math.max(image.width, image.height));
+            const canvas = document.createElement('canvas');
+            canvas.width = Math.max(1, Math.round(image.width * scale));
+            canvas.height = Math.max(1, Math.round(image.height * scale));
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+            const webp = canvas.toDataURL('image/webp', 0.82);
+            resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', 0.82));
+          };
+          image.src = reader.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function openAdd(location) {
+      el('foodForm').reset();
+      el('foodId').value = '';
+      el('foodLocation').value = location;
+      populateShelves(location);
+      el('foodEmoji').value = DEFAULT_EMOJI;
+      el('foodName').value = '';
+      currentImage = null;
+      caloriesTouched = false;
+      previewImage();
+      populatePresets(location);
+      el('formTitle').textContent = 'Add ingredient';
+      el('calorieHelp').textContent = 'Choose a preset food to fill its estimated calories automatically.';
+      el('foodFormDialog').showModal();
+    }
+
+    function showDetails(id) {
+      const item = ingredients.find(food => food.id === id);
+      if (!item) return;
+      el('detailVisual').replaceChildren();
+      if (item.image) {
+        const img = document.createElement('img');
+        img.src = item.image;
+        img.alt = item.name;
+        img.className = 'detail-image';
+        el('detailVisual').appendChild(img);
+      } else {
+        const emoji = document.createElement('span');
+        emoji.className = 'detail-emoji';
+        emoji.textContent = item.emoji || DEFAULT_EMOJI;
+        el('detailVisual').appendChild(emoji);
+      }
+      el('detailName').textContent = item.name;
+      el('detailQuantity').textContent = item.quantity;
+      el('detailExpiry').textContent = formatDate(item.expiry);
+      el('detailCalories').textContent = item.calories == null ? 'Not entered' : `${item.calories} kcal (total)`;
+      el('detailLocation').textContent = `${LOCATION_NAMES[item.location]}, ${getCompartment(item.location, item.shelf)?.name || 'unknown compartment'}`;
+      el('editButton').onclick = () => openEdit(id);
+      el('deleteButton').onclick = () => deleteIngredient(id);
+      el('detailsDialog').showModal();
+    }
+
+    function openEdit(id) {
+      const item = ingredients.find(food => food.id === id);
+      if (!item) return;
+      el('detailsDialog').close();
+      el('foodForm').reset();
+      el('foodId').value = item.id;
+      el('foodLocation').value = item.location;
+      populateShelves(item.location, item.shelf);
+      const preset = FOOD_CATALOG[item.location].find(food => food.name === item.name);
+      populatePresets(item.location, preset ? item.name : '__custom__');
+      el('foodName').value = item.name;
+      el('foodEmoji').value = item.emoji || DEFAULT_EMOJI;
+      el('foodQuantity').value = item.quantity;
+      el('foodExpiry').value = item.expiry || '';
+      el('foodCalories').value = item.calories ?? '';
+      // If the saved calories differ from the estimate, the user typed them: keep them.
+      caloriesTouched = item.calories != null && estimateCalories(preset, item.quantity) !== item.calories;
+      currentImage = item.image || null;
+      el('foodImage').value = '';
+      previewImage();
+      el('formTitle').textContent = 'Edit ingredient';
+      updateCalories();
+      el('foodFormDialog').showModal();
+    }
+
+    function deleteIngredient(id) {
+      const item = ingredients.find(food => food.id === id);
+      if (!item || !confirm(`Delete ${item.name}?`)) return;
+      const next = ingredients.filter(food => food.id !== id);
+      if (!saveIngredients(next)) return;
+      ingredients = next;
+      renderIngredients();
+      el('detailsDialog').close();
+    }
+
+    el('foodLocation').addEventListener('change', () => {
+      // Keep the selected preset if it exists in the new compartment;
+      // otherwise switch to "Other" but carry the food's name across.
+      const oldPreset = el('foodPreset').value;
+      const isValid = FOOD_CATALOG[el('foodLocation').value].some(x => x.name === oldPreset);
+      if (!isValid && oldPreset && oldPreset !== '__custom__') el('foodName').value = oldPreset;
+      populatePresets(el('foodLocation').value, isValid ? oldPreset : (oldPreset ? '__custom__' : ''));
+      populateShelves(el('foodLocation').value);
+      updateCalories();
+    });
+    el('foodPreset').addEventListener('change', onPresetChange);
+    el('foodQuantity').addEventListener('input', () => { if (getPreset()) updateCalories(); });
+    el('foodCalories').addEventListener('input', () => {
+      // Typing a value means "use mine"; clearing the box goes back to the estimate.
+      caloriesTouched = el('foodCalories').value !== '';
+      if (!caloriesTouched) updateCalories();
+      else if (getPreset()) updateCalories();
+    });
+    el('foodImage').addEventListener('change', async () => {
+      const file = el('foodImage').files[0];
+      if (!file) return;
+      try {
+        currentImage = await resizeImage(file);
+        previewImage();
+      } catch (error) {
+        alert(error.message);
+        el('foodImage').value = '';
+      }
+    });
+    el('removeImageButton').addEventListener('click', () => {
+      currentImage = null;
+      el('foodImage').value = '';
+      previewImage();
+    });
+
+    el('foodForm').addEventListener('submit', event => {
+      event.preventDefault();
+      const preset = getPreset();
+      const name = preset ? preset.name : el('foodName').value.trim();
+      const quantity = el('foodQuantity').value.trim();
+      const emoji = el('foodEmoji').value.trim();
+      if (!name || !quantity || (!emoji && !currentImage)) {
+        alert('Enter a name, quantity, and either an emoji or a picture.');
+        return;
+      }
+      const id = el('foodId').value;
+      const calText = el('foodCalories').value;
+      const item = {
+        id: id || makeId(),
+        name, emoji, quantity,
+        expiry: el('foodExpiry').value,
+        calories: calText === '' ? null : Number(calText),
+        location: el('foodLocation').value,
+        shelf: el('foodShelf').value,
+        image: currentImage
+      };
+      const next = id ? ingredients.map(food => food.id === id ? item : food) : [...ingredients, item];
+      if (!saveIngredients(next)) return;
+      ingredients = next;
+      renderIngredients();
+      el('foodFormDialog').close();
+      setDoor(item.location, true);
+    });
+
+    // Backup: download everything as a JSON file, or load one back in.
+    el('exportButton').addEventListener('click', () => {
+      const backup = { app: 'my-kitchen', version: 2, layout, ingredients };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = `my-kitchen-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    });
+    el('importButton').addEventListener('click', () => el('importFile').click());
+    el('importFile').addEventListener('change', async () => {
+      const file = el('importFile').files[0];
+      el('importFile').value = '';
+      if (!file) return;
+      try {
+        const data = JSON.parse(await file.text());
+        // Old backups were just a list of food; newer ones also include the layout.
+        const rawItems = Array.isArray(data) ? data : data && data.ingredients;
+        if (!Array.isArray(rawItems)) throw new Error('not a backup');
+        const nextLayout = !Array.isArray(data) && data.layout ? sanitizeLayout(data.layout) : layout;
+        const items = rawItems.map(item => sanitizeItem(item, nextLayout)).filter(Boolean);
+        if (!confirm(`Replace your current kitchen with ${items.length} item(s) from this backup?`)) return;
+        if (!saveLayoutAndIngredients(nextLayout, items)) return;
+        layout = nextLayout;
+        ingredients = items;
+        renderAllLayouts();
+        renderIngredients();
+      } catch (error) {
+        alert('That file is not a valid My Kitchen backup.');
+      }
+    });
+
+    // ---------- Layout editor ----------
+    // Changes are made to a draft copy and only applied when "Save layout" is pressed.
+    let layoutDraft = null;
+    let layoutLocation = null;
+
+    function openLayout(location) {
+      layoutLocation = location;
+      layoutDraft = layout[location].map(c => ({ ...c }));
+      el('layoutTitle').textContent = `Customise ${LOCATION_NAMES[location].toLowerCase()}`;
+      renderLayoutEditor();
+      el('layoutDialog').showModal();
+    }
+
+    function countItemsIn(location, compartmentId) {
+      return ingredients.filter(item => item.location === location && item.shelf === compartmentId).length;
+    }
+
+    function makeIconButton(text, label, onClick, disabled = false) {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = text;
+      button.title = label;
+      button.setAttribute('aria-label', label);
+      button.disabled = disabled;
+      button.addEventListener('click', onClick);
+      return button;
+    }
+
+    function renderLayoutEditor() {
+      const list = el('layoutList');
+      list.replaceChildren();
+      layoutDraft.forEach((compartment, index) => {
+        const row = document.createElement('li');
+        row.className = 'layout-row';
+
+        const name = document.createElement('input');
+        name.value = compartment.name;
+        name.maxLength = 30;
+        name.setAttribute('aria-label', `Name of compartment ${index + 1}`);
+        name.addEventListener('input', () => { compartment.name = name.value; });
+
+        const type = document.createElement('select');
+        type.setAttribute('aria-label', `Type of compartment ${index + 1}`);
+        type.add(new Option('Shelf', 'shelf'));
+        type.add(new Option('Drawer', 'drawer'));
+        type.value = compartment.type;
+        type.addEventListener('change', () => { compartment.type = type.value; });
+
+        const buttons = document.createElement('div');
+        buttons.className = 'layout-row-buttons';
+        buttons.append(
+          makeIconButton('↑', `Move ${compartment.name || 'compartment'} up`, () => moveCompartment(index, -1), index === 0),
+          makeIconButton('↓', `Move ${compartment.name || 'compartment'} down`, () => moveCompartment(index, 1), index === layoutDraft.length - 1),
+          makeIconButton('🗑', `Remove ${compartment.name || 'compartment'}`, () => removeCompartment(index), layoutDraft.length === 1)
+        );
+
+        const count = document.createElement('span');
+        count.className = 'layout-count';
+        const n = countItemsIn(layoutLocation, compartment.id);
+        count.textContent = layout[layoutLocation].some(c => c.id === compartment.id)
+          ? `${n} item${n === 1 ? '' : 's'}`
+          : 'New';
+
+        row.append(name, type, buttons, count);
+        list.appendChild(row);
+      });
+      const full = layoutDraft.length >= MAX_COMPARTMENTS;
+      el('addShelfButton').disabled = full;
+      el('addDrawerButton').disabled = full;
+    }
+
+    function moveCompartment(index, direction) {
+      const target = index + direction;
+      if (target < 0 || target >= layoutDraft.length) return;
+      [layoutDraft[index], layoutDraft[target]] = [layoutDraft[target], layoutDraft[index]];
+      renderLayoutEditor();
+    }
+
+    function removeCompartment(index) {
+      if (layoutDraft.length === 1) return;
+      const compartment = layoutDraft[index];
+      const n = countItemsIn(layoutLocation, compartment.id);
+      if (n > 0 && !confirm(`"${compartment.name}" has ${n} item${n === 1 ? '' : 's'}. Remove it and move the food to the nearest compartment?`)) return;
+      layoutDraft.splice(index, 1);
+      renderLayoutEditor();
+    }
+
+    function addCompartment(type) {
+      if (layoutDraft.length >= MAX_COMPARTMENTS) return;
+      const count = layoutDraft.filter(c => c.type === type).length + 1;
+      layoutDraft.push({ id: makeId(), name: `${type === 'drawer' ? 'Drawer' : 'Shelf'} ${count}`, type });
+      renderLayoutEditor();
+      el('layoutList').lastElementChild.querySelector('input').focus();
+    }
+
+    // Food in a removed compartment moves to the nearest surviving one in the old order,
+    // looking upwards first, then downwards.
+    function findNewHome(oldList, removedId, keptIds) {
+      const start = oldList.findIndex(c => c.id === removedId);
+      for (let i = start - 1; i >= 0; i--) if (keptIds.has(oldList[i].id)) return oldList[i].id;
+      for (let i = start + 1; i < oldList.length; i++) if (keptIds.has(oldList[i].id)) return oldList[i].id;
+      return [...keptIds][0];
+    }
+
+    function saveLayout() {
+      const location = layoutLocation;
+      const cleaned = layoutDraft.map((c, i) => ({
+        ...c,
+        name: c.name.trim().slice(0, 30) || `${c.type === 'drawer' ? 'Drawer' : 'Shelf'} ${i + 1}`
+      }));
+      const keptIds = new Set(cleaned.map(c => c.id));
+      const oldList = layout[location];
+      const nextIngredients = ingredients.map(item =>
+        item.location === location && !keptIds.has(item.shelf)
+          ? { ...item, shelf: findNewHome(oldList, item.shelf, keptIds) }
+          : item
+      );
+      const nextLayout = { ...layout, [location]: cleaned };
+      if (!saveLayoutAndIngredients(nextLayout, nextIngredients)) return;
+      layout = nextLayout;
+      ingredients = nextIngredients;
+      renderLayout(location);
+      renderIngredients();
+      el('layoutDialog').close();
+    }
+
+    el('addShelfButton').addEventListener('click', () => addCompartment('shelf'));
+    el('addDrawerButton').addEventListener('click', () => addCompartment('drawer'));
+    el('saveLayoutButton').addEventListener('click', saveLayout);
+
+    renderAllLayouts();
+    renderIngredients();
+  </script>
+</body>
+</html>

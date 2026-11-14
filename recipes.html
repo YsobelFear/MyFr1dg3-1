@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Recipe ideas · My Kitchen</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px 16px 40px; background: #f7f7f2; color: #29352e; font-family: Arial, sans-serif; }
+    .page { max-width: 1000px; margin: 0 auto; }
+    a { color: #3f6148; }
+    .back { display: inline-block; margin-bottom: 8px; text-decoration: none; font-weight: bold; }
+    .back:hover { text-decoration: underline; }
+    h1 { margin: 6px 0; }
+    h2 { margin: 32px 0 6px; }
+    .muted { color: #66746a; }
+    .small { font-size: 13px; }
+    button { font: inherit; }
+    .action-button { padding: 10px 14px; border: 1px solid #9caf9e; border-radius: 8px; background: white; cursor: pointer; text-decoration: none; color: inherit; display: inline-block; }
+    .primary { background: #56745d; color: white; border-color: #56745d; }
+    .action-button:disabled { opacity: .5; cursor: wait; }
+
+    /* Ingredient chips: click to include/exclude from the search. */
+    .chip-tools { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 18px; }
+    .chip { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border-radius: 999px; border: 1px solid #aab4ac; background: #fff; cursor: pointer; color: #29352e; }
+    .chip[aria-pressed="true"] { background: #dfeadf; border-color: #56745d; }
+    .chip[aria-pressed="false"] { opacity: .55; }
+    .chip img { width: 20px; height: 20px; object-fit: contain; border-radius: 3px; }
+    .tag { font-size: 11px; font-weight: bold; padding: 2px 6px; border-radius: 4px; }
+    .tag.soon { background: #fff1d6; color: #8a5a00; }
+    .tag.expired { background: #fbe1e1; color: #a32e2e; }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 16px; margin-top: 14px; }
+    .card { background: #fff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 10px #0000000f; text-align: left; border: 0; padding: 0; cursor: pointer; display: flex; flex-direction: column; color: inherit; }
+    .card:hover, .card:focus-visible { outline: 2px solid #56745d; }
+    .card-visual { height: 140px; display: flex; align-items: center; justify-content: center; background: #eef3ee; font-size: 64px; }
+    .card-visual img { width: 100%; height: 100%; object-fit: cover; }
+    .card-body { padding: 12px 14px 14px; display: flex; flex-direction: column; gap: 6px; }
+    .card-title { font-weight: bold; font-size: 16px; }
+    .meter { height: 6px; background: #e3e7e3; border-radius: 3px; overflow: hidden; }
+    .meter span { display: block; height: 100%; background: #56745d; }
+    .uses-soon { font-size: 12px; color: #8a5a00; }
+    .status { margin-top: 12px; }
+    .empty { background: #fff; border-radius: 12px; padding: 24px; text-align: center; }
+
+    dialog { border: 0; border-radius: 14px; padding: 0; width: min(620px, calc(100vw - 24px)); max-height: 90vh; overflow-y: auto; box-shadow: 0 12px 55px #0003; }
+    dialog::backdrop { background: #1e2b2299; }
+    .detail-visual { height: 220px; display: flex; align-items: center; justify-content: center; background: #eef3ee; font-size: 96px; }
+    .detail-visual img { width: 100%; height: 100%; object-fit: cover; }
+    .detail-body { padding: 18px 22px 22px; }
+    .detail-body h2 { margin-top: 0; }
+    .ing-list { list-style: none; padding: 0; columns: 2 220px; }
+    .ing-list li { margin: 0 0 8px; break-inside: avoid; }
+    .have { color: #2f6b3c; }
+    .missing { color: #a32e2e; }
+    .basic { color: #66746a; }
+    .steps li { margin: 8px 0; line-height: 1.45; }
+    .modal-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 18px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <a class="back" href="index.html">← Back to my kitchen</a>
+    <h1>Recipe ideas</h1>
+    <p class="muted">Recipes ranked by how much of your food they use, with food that expires soonest counted most.</p>
+
+    <section id="kitchenSection">
+      <h2>Use what you have</h2>
+      <p class="muted small">Tap a food to leave it out of the search. Expired food is left out to start with.</p>
+      <div class="chip-tools">
+        <button type="button" class="action-button" id="selectAllButton">Select all</button>
+        <button type="button" class="action-button" id="soonOnlyButton">Only food expiring soon</button>
+        <button type="button" class="action-button primary" id="findButton">Find recipes</button>
+      </div>
+      <div class="chips" id="chips"></div>
+    </section>
+
+    <section id="emptySection" class="empty" hidden>
+      <p><strong>Your kitchen is empty.</strong></p>
+      <p class="muted">Add some food first, then come back for recipe ideas.</p>
+      <a class="action-button primary" href="index.html">Go to my kitchen</a>
+    </section>
+
+    <section id="resultsSection" hidden>
+      <h2>Quick ideas</h2>
+      <p class="muted small">Simple recipes built into the app, so they work offline too.</p>
+      <div class="grid" id="quickGrid"></div>
+      <p class="status muted" id="quickStatus"></p>
+
+      <h2>More recipes online</h2>
+      <p class="muted small">From <a href="https://www.themealdb.com" target="_blank" rel="noopener">TheMealDB</a>, a free recipe database.</p>
+      <p class="status muted" id="onlineStatus" role="status"></p>
+      <div class="grid" id="onlineGrid"></div>
+    </section>
+  </div>
+
+  <dialog id="recipeDialog" aria-labelledby="recipeTitle">
+    <div class="detail-visual" id="recipeVisual"></div>
+    <div class="detail-body">
+      <h2 id="recipeTitle"></h2>
+      <p class="muted small" id="recipeMeta"></p>
+      <h3>Ingredients</h3>
+      <p class="small"><span class="have">✓ you have it</span> · <span class="missing">✗ you need it</span> · <span class="basic">• kitchen basics</span></p>
+      <ul class="ing-list" id="recipeIngredients"></ul>
+      <h3>Method</h3>
+      <ol class="steps" id="recipeSteps"></ol>
+      <p id="recipeLinks"></p>
+      <div class="modal-actions">
+        <button type="button" class="action-button" onclick="document.getElementById('recipeDialog').close()">Close</button>
+      </div>
+    </div>
+  </dialog>
+
+  <script>
+    // Same storage key as the kitchen page, so this page reads the same food.
+    // Both pages must be opened from the same site/folder for this to work.
+    const STORAGE_KEY = 'myKitchenIngredientsV1';
+    const SOON_DAYS = 3;          // "expiring soon" = within this many days
+    const MAX_SEARCHED = 12;      // limit how many foods we search online at once
+    const MAX_ONLINE_RESULTS = 12;
+    const API = 'https://www.themealdb.com/api/json/v1/1';
+
+    const el = id => document.getElementById(id);
+
+    // ---------- Built-in recipes (work offline) ----------
+    const QUICK_RECIPES = [
+      { name: 'Cheesy omelette', emoji: '🍳', time: '10 min',
+        ingredients: [['Eggs', '3'], ['Cheddar cheese', '30 g'], ['Milk', '1 tbsp'], ['Butter', '1 knob'], ['Salt', 'pinch'], ['Pepper', 'pinch']],
+        steps: ['Beat the eggs with the milk, salt and pepper.', 'Melt the butter in a frying pan over a medium heat.', 'Pour in the eggs and gently pull the edges in as they set.', 'Scatter over grated cheese, fold in half and serve.'] },
+      { name: 'Tomato & spinach pasta', emoji: '🍝', time: '20 min',
+        ingredients: [['Pasta', '200 g'], ['Tomato', '3'], ['Spinach', '2 handfuls'], ['Olive oil', '2 tbsp'], ['Cheddar cheese', 'to serve'], ['Salt', 'pinch']],
+        steps: ['Cook the pasta in salted boiling water.', 'Meanwhile, chop the tomatoes and soften them in olive oil for 5 minutes.', 'Stir in the spinach until it wilts.', 'Drain the pasta, toss with the sauce and top with grated cheese.'] },
+      { name: 'Chicken & broccoli rice', emoji: '🍗', time: '30 min',
+        ingredients: [['Chicken breast', '2'], ['Broccoli', '1 head'], ['Rice', '150 g'], ['Olive oil', '1 tbsp'], ['Salt', 'pinch'], ['Pepper', 'pinch']],
+        steps: ['Cook the rice as the packet says.', 'Slice the chicken and fry in oil until cooked through, about 8 minutes.', 'Add broccoli florets and a splash of water, cover and steam for 4 minutes.', 'Season and serve over the rice.'] },
+      { name: 'Berry overnight oats', emoji: '🥣', time: '5 min + overnight',
+        ingredients: [['Oats', '50 g'], ['Milk', '120 ml'], ['Yoghurt', '2 tbsp'], ['Berries', 'a handful'], ['Honey', '1 tsp']],
+        steps: ['Mix the oats, milk and yoghurt in a jar or bowl.', 'Stir in the berries (frozen is fine) and the honey.', 'Cover and leave in the fridge overnight.', 'Stir and eat cold in the morning.'] },
+      { name: 'Jacket potato with beans & cheese', emoji: '🥔', time: '1 hr (8 min microwave)',
+        ingredients: [['Potatoes', '1 large'], ['Tinned beans', '200 g'], ['Cheddar cheese', '40 g'], ['Butter', '1 knob'], ['Salt', 'pinch']],
+        steps: ['Prick the potato and bake at 200°C for about an hour (or microwave for 8–10 minutes).', 'Warm the beans in a pan.', 'Split the potato, add butter and salt.', 'Spoon over the beans and top with grated cheese.'] },
+      { name: 'Pancakes', emoji: '🥞', time: '20 min',
+        ingredients: [['Flour', '100 g'], ['Eggs', '2'], ['Milk', '300 ml'], ['Butter', 'for the pan'], ['Sugar', 'to serve'], ['Orange', 'squeeze, to serve']],
+        steps: ['Whisk the flour, eggs and milk into a smooth batter.', 'Heat a little butter in a frying pan.', 'Pour in a thin layer of batter and cook for 1 minute each side.', 'Serve with sugar and a squeeze of orange.'] },
+      { name: 'Fish, chips & peas', emoji: '🐟', time: '30 min',
+        ingredients: [['Fish', '2 fillets'], ['Chips', '300 g'], ['Peas', '150 g'], ['Butter', '1 knob'], ['Salt', 'pinch']],
+        steps: ['Oven-cook the chips and fish as their packets say.', 'Boil the peas for 3 minutes, drain and stir in the butter.', 'Season and serve together.'] },
+      { name: 'Veggie fried rice', emoji: '🍚', time: '15 min',
+        ingredients: [['Rice', '250 g cooked'], ['Mixed vegetables', '150 g'], ['Peas', '50 g'], ['Eggs', '2'], ['Carrot', '1'], ['Olive oil', '1 tbsp']],
+        steps: ['Heat the oil in a wok or large pan.', 'Fry the grated carrot, vegetables and peas for 4 minutes.', 'Push to one side, scramble the eggs in the gap, then mix through.', 'Add the cold cooked rice and fry until hot.'] },
+      { name: 'Apple crumble', emoji: '🍎', time: '45 min',
+        ingredients: [['Apple', '4'], ['Flour', '100 g'], ['Butter', '60 g'], ['Sugar', '60 g'], ['Oats', '30 g'], ['Ice cream', 'to serve']],
+        steps: ['Heat the oven to 190°C. Slice the apples into an ovenproof dish with a spoon of sugar.', 'Rub the butter into the flour, then stir in the rest of the sugar and the oats.', 'Scatter the crumble over the apples.', 'Bake for 30 minutes until golden. Serve with ice cream.'] },
+      { name: 'Peanut butter & apple toast', emoji: '🍞', time: '5 min',
+        ingredients: [['Bread', '2 slices'], ['Peanut butter', '2 tbsp'], ['Apple', '1'], ['Honey', 'drizzle']],
+        steps: ['Toast the bread.', 'Spread with peanut butter.', 'Top with thin apple slices and a drizzle of honey.'] },
+      { name: 'Carrot & potato soup', emoji: '🥕', time: '35 min',
+        ingredients: [['Carrot', '4'], ['Potatoes', '1'], ['Olive oil', '1 tbsp'], ['Milk', 'splash'], ['Water', '700 ml'], ['Salt', 'pinch'], ['Pepper', 'pinch']],
+        steps: ['Chop the carrots and potato and soften in the oil for 5 minutes.', 'Add the water, bring to the boil and simmer for 20 minutes.', 'Blend until smooth, add a splash of milk and season.'] },
+      { name: 'Frozen pizza upgrade', emoji: '🍕', time: '15 min',
+        ingredients: [['Pizza', '1'], ['Spinach', 'a handful'], ['Tomato', '1'], ['Cheddar cheese', '30 g']],
+        steps: ['Top the frozen pizza with sliced tomato, spinach and extra cheese.', 'Bake as the packet says.'] }
+    ];
+
+    // ---------- Matching your food to recipe ingredients ----------
+    // Names TheMealDB uses for our preset foods. Empty = not worth searching online.
+    const MEALDB_NAMES = {
+      'Milk': ['milk'], 'Eggs': ['eggs'], 'Cheddar cheese': ['cheddar cheese'],
+      'Yoghurt': ['greek yogurt', 'yogurt'], 'Butter': ['butter'],
+      'Chicken breast': ['chicken breast', 'chicken'], 'Tomato': ['tomatoes'],
+      'Carrot': ['carrots'], 'Broccoli': ['broccoli'], 'Apple': ['apples', 'apple'],
+      'Spinach': ['spinach'], 'Orange': ['orange'],
+      'Pasta (dry)': ['spaghetti', 'penne rigate'], 'Rice (dry)': ['rice', 'basmati rice'],
+      'Bread': ['bread'], 'Oats (dry)': ['oats'], 'Flour': ['plain flour', 'flour'],
+      'Sugar': [], 'Honey': ['honey'], 'Peanut butter': ['peanut butter'],
+      'Tinned beans': ['kidney beans', 'cannellini beans'], 'Olive oil': [],
+      'Nuts': ['walnuts', 'almonds'], 'Potatoes': ['potatoes'],
+      'Frozen peas': ['peas'], 'Frozen mixed vegetables': ['mixed vegetables'],
+      'Frozen berries': ['blueberries', 'raspberries'], 'Ice cream': ['ice cream'],
+      'Frozen chips': [], 'Frozen pizza': [], 'Frozen fish': ['white fish', 'cod'],
+      'Frozen chicken breast': ['chicken breast', 'chicken'], 'Frozen dumplings': [],
+      'Frozen bread': ['bread']
+    };
+    // Things everyone is assumed to have; never listed as "missing".
+    const BASICS = ['salt', 'pepper', 'black pepper', 'water', 'sea salt', 'ice'];
+    // Words that turn an ingredient into something else ("rice vinegar" isn't rice).
+    const CHANGES_MEANING = ['coconut', 'almond', 'soy', 'vinegar', 'stock', 'powder', 'extract', 'sauce', 'puree', 'paste', 'bean', 'peanut', 'noodle', 'wine'];
+
+    // "Frozen Tomatoes (dry)" → "tomato": lower case, drop storage words, simple singular.
+    function normalise(text) {
+      return String(text).toLowerCase()
+        .replace(/\(.*?\)/g, ' ')
+        .replace(/\b(frozen|fresh|dry|dried|tinned|canned|chopped|large|small|medium)\b/g, ' ')
+        .replace(/[^a-z\s]/g, ' ')
+        .split(/\s+/).filter(Boolean)
+        .map(word => word.endsWith('ies') ? word.slice(0, -3) + 'y'
+          : word.endsWith('oes') ? word.slice(0, -2)
+          : word.endsWith('s') && !word.endsWith('ss') ? word.slice(0, -1)
+          : word)
+        .join(' ');
+    }
+
+    function containsPhrase(text, phrase) {
+      return (` ${text} `).includes(` ${phrase} `);
+    }
+
+    // Does a recipe ingredient (already normalised) match any of a food's terms?
+    function matchesTerms(recipeIng, terms) {
+      return terms.some(term => {
+        if (!term) return false;
+        if (recipeIng === term) return true;
+        if (containsPhrase(recipeIng, term)) {
+          // "chicken stock" contains "chicken" but isn't chicken.
+          return !CHANGES_MEANING.some(word => containsPhrase(recipeIng, word) && !containsPhrase(term, word));
+        }
+        return containsPhrase(term, recipeIng);
+      });
+    }
+
+    function isBasic(recipeIng) {
+      return BASICS.map(normalise).includes(recipeIng);
+    }
+
+    // ---------- Your kitchen ----------
+    function daysUntil(iso) {
+      if (!iso) return null;
+      const [y, m, d] = iso.split('-').map(Number);
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      return Math.round((new Date(y, m - 1, d) - today) / 86400000);
+    }
+
+    function formatDate(iso) {
+      if (!iso) return '';
+      const [y, m, d] = iso.split('-');
+      return `${d}/${m}/${y}`;
+    }
+
+    function loadKitchen() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        return Array.isArray(saved) ? saved.filter(item => item && typeof item.name === 'string' && item.name.trim()) : [];
+      } catch (error) {
+        return [];
+      }
+    }
+
+    // Merge duplicate foods (e.g. milk in two places) into one entry using the soonest expiry.
+    function buildFoods(items) {
+      const byName = new Map();
+      for (const item of items) {
+        const key = normalise(item.name);
+        const days = daysUntil(item.expiry);
+        const existing = byName.get(key);
+        if (!existing) {
+          const searchNames = MEALDB_NAMES[item.name] ?? [normalise(item.name)];
+          byName.set(key, {
+            key, name: item.name, emoji: item.emoji || '🍽️', image: item.image || null,
+            expiry: item.expiry || '', days,
+            searchNames,
+            terms: [key, ...searchNames.map(normalise)]
+          });
+        } else if (days !== null && (existing.days === null || days < existing.days)) {
+          existing.days = days;
+          existing.expiry = item.expiry;
+        }
+      }
+      return [...byName.values()].map(food => ({
+        ...food,
+        expired: food.days !== null && food.days < 0,
+        soon: food.days !== null && food.days >= 0 && food.days <= SOON_DAYS
+      })).sort((a, b) => (a.days ?? 9999) - (b.days ?? 9999) || a.name.localeCompare(b.name));
+    }
+
+    const foods = buildFoods(loadKitchen());
+    const selected = new Set(foods.filter(food => !food.expired).map(food => food.key));
+
+    // ---------- Chips ----------
+    function renderChips() {
+      const box = el('chips');
+      box.replaceChildren();
+      for (const food of foods) {
+        const chip = document.createElement('button');
+        chip.type = 'button';
+        chip.className = 'chip';
+        chip.setAttribute('aria-pressed', String(selected.has(food.key)));
+        if (food.image) {
+          const img = document.createElement('img');
+          img.src = food.image; img.alt = '';
+          chip.appendChild(img);
+        } else {
+          chip.append(food.emoji + ' ');
+        }
+        chip.append(food.name);
+        if (food.expired || food.soon) {
+          const tag = document.createElement('span');
+          tag.className = `tag ${food.expired ? 'expired' : 'soon'}`;
+          tag.textContent = food.expired ? 'Expired'
+            : food.days === 0 ? 'Use today' : `Use in ${food.days}d`;
+          chip.appendChild(tag);
+        }
+        chip.title = food.expiry ? `Expires ${formatDate(food.expiry)}` : 'No expiry date';
+        chip.addEventListener('click', () => {
+          selected.has(food.key) ? selected.delete(food.key) : selected.add(food.key);
+          chip.setAttribute('aria-pressed', String(selected.has(food.key)));
+        });
+        box.appendChild(chip);
+      }
+    }
+
+    // ---------- Scoring ----------
+    // Works for both built-in and online recipes: given a list of ingredient names,
+    // work out which ones you have, which are basics, and which are missing.
+    function analyse(ingredientNames) {
+      const chosen = foods.filter(food => selected.has(food.key));
+      const rows = ingredientNames.map(([name, measure]) => {
+        const norm = normalise(name);
+        const food = chosen.find(f => matchesTerms(norm, f.terms));
+        return { name, measure, food, basic: !food && isBasic(norm) };
+      });
+      const have = rows.filter(r => r.food);
+      const needed = rows.filter(r => !r.basic);
+      const missing = needed.filter(r => !r.food);
+      const usedFoods = [...new Set(have.map(r => r.food))];
+      const soonUsed = usedFoods.filter(f => f.soon);
+      // Using up food that's about to expire matters most; missing items count against.
+      const score = usedFoods.length + soonUsed.length * 2 - missing.length * 0.4;
+      return { rows, haveCount: have.length, neededCount: needed.length, missing, soonUsed, score };
+    }
+
+    function makeCard(recipe, analysis, onOpen) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'card';
+      const visual = document.createElement('div');
+      visual.className = 'card-visual';
+      if (recipe.image) {
+        const img = document.createElement('img');
+        img.src = recipe.image; img.alt = ''; img.loading = 'lazy';
+        visual.appendChild(img);
+      } else {
+        visual.textContent = recipe.emoji;
+      }
+      const body = document.createElement('div');
+      body.className = 'card-body';
+      const title = document.createElement('div');
+      title.className = 'card-title';
+      title.textContent = recipe.name;
+      const meter = document.createElement('div');
+      meter.className = 'meter';
+      const fill = document.createElement('span');
+      fill.style.width = `${analysis.neededCount ? Math.round(analysis.haveCount / analysis.neededCount * 100) : 0}%`;
+      meter.appendChild(fill);
+      const summary = document.createElement('div');
+      summary.className = 'small muted';
+      summary.textContent = `You have ${analysis.haveCount} of ${analysis.neededCount} ingredients`
+        + (recipe.time ? ` · ${recipe.time}` : '');
+      body.append(title, meter, summary);
+      if (analysis.soonUsed.length) {
+        const soon = document.createElement('div');
+        soon.className = 'uses-soon';
+        soon.textContent = `⏰ Uses up: ${analysis.soonUsed.map(f => f.name).join(', ')}`;
+        body.appendChild(soon);
+      }
+      card.append(visual, body);
+      card.setAttribute('aria-label', `${recipe.name}. You have ${analysis.haveCount} of ${analysis.neededCount} ingredients.`);
+      card.addEventListener('click', onOpen);
+      return card;
+    }
+
+    // ---------- Recipe details ----------
+    function openRecipe(recipe, analysis) {
+      const visual = el('recipeVisual');
+      visual.replaceChildren();
+      if (recipe.image) {
+        const img = document.createElement('img');
+        img.src = recipe.image; img.alt = recipe.name;
+        visual.appendChild(img);
+      } else {
+        visual.textContent = recipe.emoji;
+      }
+      el('recipeTitle').textContent = recipe.name;
+      el('recipeMeta').textContent = [recipe.time, recipe.category, recipe.area].filter(Boolean).join(' · ');
+
+      const list = el('recipeIngredients');
+      list.replaceChildren();
+      for (const row of analysis.rows) {
+        const li = document.createElement('li');
+        li.className = row.food ? 'have' : row.basic ? 'basic' : 'missing';
+        const mark = row.food ? '✓' : row.basic ? '•' : '✗';
+        li.textContent = `${mark} ${row.name}${row.measure ? ` — ${row.measure}` : ''}`;
+        if (row.food && row.food.expiry) li.title = `Yours expires ${formatDate(row.food.expiry)}`;
+        list.appendChild(li);
+      }
+
+      const steps = el('recipeSteps');
+      steps.replaceChildren();
+      for (const step of recipe.steps) {
+        const li = document.createElement('li');
+        li.textContent = step;
+        steps.appendChild(li);
+      }
+
+      const links = el('recipeLinks');
+      links.replaceChildren();
+      for (const [label, url] of [['Original recipe', recipe.source], ['Watch on YouTube', recipe.youtube]]) {
+        if (!url || !/^https?:\/\//.test(url)) continue;
+        const a = document.createElement('a');
+        a.href = url; a.target = '_blank'; a.rel = 'noopener';
+        a.textContent = label;
+        links.append(a, '  ');
+      }
+      el('recipeDialog').showModal();
+    }
+
+    // ---------- Built-in results ----------
+    function showQuickIdeas() {
+      const grid = el('quickGrid');
+      grid.replaceChildren();
+      const ranked = QUICK_RECIPES
+        .map(recipe => ({ recipe, analysis: analyse(recipe.ingredients) }))
+        // Show it if you have at least 2 ingredients AND either the main (first) one
+        // or at least half of the recipe. No "pizza upgrade" without a pizza.
+        .filter(({ analysis }) => analysis.haveCount >= 2
+          && (analysis.rows[0].food || analysis.haveCount / analysis.neededCount >= 0.5))
+        .sort((a, b) => b.analysis.score - a.analysis.score);
+      for (const { recipe, analysis } of ranked) {
+        grid.appendChild(makeCard(recipe, analysis, () => openRecipe(recipe, analysis)));
+      }
+      el('quickStatus').textContent = ranked.length ? '' : 'No quick ideas match your selected food yet.';
+    }
+
+    // ---------- Online results (TheMealDB) ----------
+    // Responses are cached for this browser tab, so repeat searches are instant.
+    async function getJson(url) {
+      const cacheKey = `mealdb:${url}`;
+      try {
+        const cached = sessionStorage.getItem(cacheKey);
+        if (cached) return JSON.parse(cached);
+      } catch (error) { /* cache unavailable */ }
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      try { sessionStorage.setItem(cacheKey, JSON.stringify(data)); } catch (error) { /* full */ }
+      return data;
+    }
+
+    function mealToRecipe(meal) {
+      const ingredients = [];
+      for (let i = 1; i <= 20; i++) {
+        const name = (meal[`strIngredient${i}`] || '').trim();
+        if (name) ingredients.push([name, (meal[`strMeasure${i}`] || '').trim()]);
+      }
+      const steps = (meal.strInstructions || '')
+        .split(/\r?\n+/)
+        .map(line => line.replace(/^\s*(step\s*)?\d+[.):]?\s*/i, '').trim())
+        .filter(line => line.length > 2);
+      return {
+        name: meal.strMeal, image: meal.strMealThumb || null, emoji: '🍽️',
+        category: meal.strCategory, area: meal.strArea,
+        source: meal.strSource, youtube: meal.strYoutube,
+        ingredients, steps: steps.length ? steps : ['No method was provided for this recipe.']
+      };
+    }
+
+    let searchRun = 0;
+
+    async function showOnlineRecipes() {
+      const run = ++searchRun;
+      const grid = el('onlineGrid');
+      const status = el('onlineStatus');
+      grid.replaceChildren();
+
+      // Search for the selected foods, soonest-expiring first.
+      const toSearch = foods.filter(f => selected.has(f.key) && f.searchNames.length).slice(0, MAX_SEARCHED);
+      if (!toSearch.length) {
+        status.textContent = 'Select some food to search for recipes online.';
+        return;
+      }
+      status.textContent = 'Searching for recipes…';
+
+      // 1. For each food, find meals that use it. Tally how many of your foods each meal uses,
+      //    giving extra weight to food that's expiring soon.
+      const tally = new Map();
+      let failures = 0;
+      await Promise.all(toSearch.map(async food => {
+        const mealIds = new Set();
+        for (const searchName of food.searchNames) {
+          try {
+            const data = await getJson(`${API}/filter.php?i=${encodeURIComponent(searchName.replace(/ /g, '_'))}`);
+            (data.meals || []).forEach(meal => mealIds.add(meal.idMeal));
+          } catch (error) {
+            failures++;
+          }
+        }
+        mealIds.forEach(id => tally.set(id, (tally.get(id) || 0) + (food.soon ? 3 : 1)));
+      }));
+      if (run !== searchRun) return; // a newer search started
+
+      const totalRequests = toSearch.reduce((n, f) => n + f.searchNames.length, 0);
+      if (failures === totalRequests) {
+        status.textContent = "Couldn't reach the online recipe database. Check your internet connection. The quick ideas still work offline.";
+        return;
+      }
+
+      // 2. Look up full details for the best candidates, then rank them properly.
+      const candidates = [...tally.entries()].sort((a, b) => b[1] - a[1]).slice(0, MAX_ONLINE_RESULTS);
+      if (!candidates.length) {
+        status.textContent = 'No online recipes found for that food. Try selecting more items.';
+        return;
+      }
+      const details = await Promise.all(candidates.map(([id]) =>
+        getJson(`${API}/lookup.php?i=${encodeURIComponent(id)}`)
+          .then(data => data.meals && data.meals[0])
+          .catch(() => null)
+      ));
+      if (run !== searchRun) return;
+
+      const ranked = details.filter(Boolean)
+        .map(meal => {
+          const recipe = mealToRecipe(meal);
+          return { recipe, analysis: analyse(recipe.ingredients) };
+        })
+        .sort((a, b) => b.analysis.score - a.analysis.score);
+
+      for (const { recipe, analysis } of ranked) {
+        grid.appendChild(makeCard(recipe, analysis, () => openRecipe(recipe, analysis)));
+      }
+      status.textContent = ranked.length
+        ? (failures ? 'Some searches failed, so these results may be incomplete.' : '')
+        : "Couldn't load recipe details. Try again in a moment.";
+    }
+
+    async function findRecipes() {
+      el('resultsSection').hidden = false;
+      showQuickIdeas();
+      const button = el('findButton');
+      button.disabled = true;
+      try {
+        await showOnlineRecipes();
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    // ---------- Start ----------
+    el('selectAllButton').addEventListener('click', () => {
+      foods.forEach(food => selected.add(food.key));
+      renderChips();
+    });
+    el('soonOnlyButton').addEventListener('click', () => {
+      selected.clear();
+      foods.filter(food => food.soon).forEach(food => selected.add(food.key));
+      renderChips();
+      if (!selected.size) alert('Nothing is expiring in the next few days. Add expiry dates to your food to use this.');
+    });
+    el('findButton').addEventListener('click', findRecipes);
+
+    if (!foods.length) {
+      el('kitchenSection').hidden = true;
+      el('emptySection').hidden = false;
+    } else {
+      renderChips();
+      findRecipes();
+    }
+  </script>
+</body>
+</html>
